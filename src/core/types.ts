@@ -2,6 +2,7 @@
 import type { MailContent, Mailer } from "../mail/mailer.js";
 import type { SqlExecutor } from "../rate-limit/limiter.js";
 
+import type { Limits } from "./policies.js";
 import type { Env } from "./settings.js";
 
 /** A Drizzle Postgres database (postgres-js, node-postgres or PGlite) that includes `authTables`. */
@@ -63,6 +64,8 @@ export interface AuthKitOptions<TDb extends AuthDatabase> {
    * and an unused token. Return null to let it through.
    */
   guardGuestToAccount?: (request: GuestToAccountRequest) => Promise<GuestToAccountRefusal | null>;
+  /** Usage limits merged over DEFAULT_LIMITS; `limitsFromEnv(process.env)` reads them from RATE_LIMIT_* variables. */
+  limits?: Partial<Limits>;
   /** Trusted reverse proxies in front of the app (default 1): the client is that `X-Forwarded-For` entry from the right. */
   trustedProxyHops?: number;
   /** The environment better-auth also reads (NODE_ENV, BETTER_AUTH_TELEMETRY, …); default `process.env`. */

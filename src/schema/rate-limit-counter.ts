@@ -6,7 +6,14 @@ import { sql } from "drizzle-orm";
 import { check, customType, index, integer, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 /** The scopes the package counts: a closed catalogue, enforced by a CHECK. */
-export const RATE_LIMIT_SCOPES = ["magic_link_email", "magic_link_ip"] as const;
+export const RATE_LIMIT_SCOPES = [
+  "magic_link_email",
+  "magic_link_ip",
+  "otp_verify_email",
+  "otp_verify_ip",
+  "anon_signup",
+  "anon_signup_global",
+] as const;
 export type RateLimitScope = (typeof RATE_LIMIT_SCOPES)[number];
 
 /** The stored key is HMAC-SHA256 truncated to 16 bytes: neither an IP address nor an email fits there in clear. */

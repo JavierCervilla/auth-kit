@@ -3,19 +3,20 @@
  *
  * - Each attempt is ONE atomic statement (`INSERT … ON CONFLICT … DO UPDATE SET hits = hits + 1 RETURNING hits`), with
  *   the window taken from the database's `now()`; it passes while `hits` does not exceed the limit. The same statement
- *   purges at most 100 rows of windows that started more than 3 days ago (the longest window is one hour). `skip
+ *   purges at most 100 rows of windows that started more than 3 days ago (the longest window is one day). `skip
  *   locked`: two purges at once neither wait for nor deadlock each other.
- * - It runs on its own statement, outside any transaction of the caller, so a rollback can never take an attempt back.
+ * - It runs on its own statement, outside any transaction of the caller, so a rollback can never take an attempt back
+ *   (a failed code check must not refund the guess).
  * - A check spends ALL its quotas before deciding, and throws the same `RateLimitedError` whichever one ran out: the
  *   429 does not depend on the email or on which quota it was.
- * - The key is an HMAC-SHA256 of the subject (the normalised IP address of client-ip.ts, or the email) with a key
+ * - The key is an HMAC-SHA256 of the subject (the normalised IP address of client-ip.ts, the email or `global`) with a key
  *   derived from the auth secret and a fixed label (no new secret), truncated to 16 bytes.
  */
 import { createHmac } from "node:crypto";
 
 import { sql, type SQLWrapper } from "drizzle-orm";
 
-import { SEND_LIMITS } from "../core/policies.js";
+import { LIMIT_WINDOWS, type Limits } from "../core/policies.js";
 import { RATE_LIMIT_KEY_BYTES, type RateLimitScope } from "../schema/rate-limit-counter.js";
 
 import { clientIpSubject, NO_IP } from "./client-ip.js";
@@ -68,6 +69,7 @@ export interface SendLimiterOptions {
   /** How many trusted proxies sit in front: the client is the n-th `X-Forwarded-For` entry from the right. */
   trustedProxyHops: number;
   log: (line: string) => void;
+  limits: Limits;
 }
 
 export interface SendLimiter {
@@ -76,7 +78,20 @@ export interface SendLimiter {
    * and per IP. Throws `RateLimitedError` if any is exhausted.
    */
   beforeMagicLinkSend(headers: Headers, email: string | null): Promise<void>;
+  /** Spends the code-check quotas, per email (normalised) and per IP, whatever the check's outcome. */
+  beforeCodeCheck(headers: Headers, email: string): Promise<void>;
+  /** Spends the guest sign-up quotas, per IP and global, before any guest user is created. */
+  beforeGuestSignUp(headers: Headers): Promise<void>;
 }
+
+const { hourSeconds: HOUR, daySeconds: DAY } = LIMIT_WINDOWS;
+
+const attempt = (scope: RateLimitScope, subject: string, limit: number, windowSeconds: number): Attempt => ({
+  scope,
+  subject,
+  limit,
+  windowSeconds,
+});
 
 export function createSendLimiter(options: SendLimiterOptions): SendLimiter {
   /** Counts one attempt and says whether it passes; if not, how many seconds until the next window. */
@@ -118,22 +133,24 @@ export function createSendLimiter(options: SendLimiterOptions): SendLimiter {
     return subject;
   }
 
+  const { limits } = options;
   return {
     beforeMagicLinkSend(headers, email) {
-      const byIp: Attempt = {
-        scope: "magic_link_ip",
-        subject: ipSubject(headers),
-        limit: SEND_LIMITS.perIp.hits,
-        windowSeconds: SEND_LIMITS.perIp.windowSeconds,
-      };
+      const byIp = attempt("magic_link_ip", ipSubject(headers), limits.sendPerIpPerHour, HOUR);
       if (email === null) return spend([byIp]);
-      const byEmail: Attempt = {
-        scope: "magic_link_email",
-        subject: `email:${email}`,
-        limit: SEND_LIMITS.perEmail.hits,
-        windowSeconds: SEND_LIMITS.perEmail.windowSeconds,
-      };
-      return spend([byEmail, byIp]);
+      return spend([attempt("magic_link_email", `email:${email}`, limits.sendPerEmailPerHour, HOUR), byIp]);
+    },
+    beforeCodeCheck(headers, email) {
+      return spend([
+        attempt("otp_verify_email", `email:${email}`, limits.codeCheckPerEmailPerDay, DAY),
+        attempt("otp_verify_ip", ipSubject(headers), limits.codeCheckPerIpPerHour, HOUR),
+      ]);
+    },
+    beforeGuestSignUp(headers) {
+      return spend([
+        attempt("anon_signup", ipSubject(headers), limits.guestSignUpPerIpPerHour, HOUR),
+        attempt("anon_signup_global", "global", limits.guestSignUpGlobalPerHour, HOUR),
+      ]);
     },
   };
 }

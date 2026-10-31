@@ -4,7 +4,7 @@
  *   better-auth sees it (no `name`, `image` or extra fields can reach a new `user`);
  * - behind, one error: wrong (`INVALID_OTP`), expired (`OTP_EXPIRED`) or exhausted (`TOO_MANY_ATTEMPTS`) all answer
  *   the same 400 with the same body, so the answer does not say whether a code was requested, expired or ran out.
- * Every other `emailOTP` route answers 404 over HTTP: the code is only ever sent together with the magic link.
+ * Every other `emailOTP` route answers 404 over HTTP (route-allowlist.ts): the code is only sent with the magic link.
  * Neither the code nor the email is written to any log.
  */
 import { APIError } from "better-auth/api";
@@ -64,8 +64,3 @@ export async function sameCodeErrorStatus(request: Request, response: Response):
   return Response.json({ code: CODE_NOT_VALID }, { status: 400, headers: NO_STORE });
 }
 
-/** Every `emailOTP` path except the code check: closed over HTTP. */
-export function closedCodePaths(endpoints: Readonly<Record<string, { path?: string }>>): ReadonlySet<string> {
-  const paths = Object.values(endpoints).map((endpoint) => endpoint.path);
-  return new Set(paths.filter((path): path is string => path !== undefined && path !== EMAIL_CODE_VERIFY_PATH));
-}

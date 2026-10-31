@@ -1,10 +1,18 @@
 /**
- * The send limit in front of the sign-in email: 5 per hour per email and 20 per hour per IP (SEND_LIMITS), counted
- * before better-auth looks at the email, with the same 429 whether the email exists or not and whichever quota ran out.
+ * The limits in front of better-auth, counted before it looks at anything, each with one 429 whatever the email and
+ * whichever quota ran out (defaults in DEFAULT_LIMITS):
+ * - the sign-in email: per email and per IP, per hour;
+ * - checking the email code: per email per day and per IP per hour, right code or not;
+ * - creating a guest: per IP and in total, per hour.
  */
 import { APIError } from "better-auth/api";
 
 import { RateLimitedError, type SendLimiter } from "../rate-limit/limiter.js";
+
+interface LimitedRequest {
+  headers?: Headers | undefined;
+  body?: unknown;
+}
 
 /** The body's email, lower case and trimmed, or null if there is none to read. */
 function normalisedEmail(body: unknown): string | null {
@@ -21,15 +29,27 @@ export function rateLimitedError(retryAfterSeconds: number): APIError {
   );
 }
 
-/** Spends the send quotas; throws the 429 if any is exhausted. */
-export async function limitSend(
-  limiter: SendLimiter,
-  request: { headers?: Headers | undefined; body?: unknown },
-): Promise<void> {
+async function spendOr429(spend: () => Promise<void>): Promise<void> {
   try {
-    await limiter.beforeMagicLinkSend(request.headers ?? new Headers(), normalisedEmail(request.body));
+    await spend();
   } catch (error) {
     if (error instanceof RateLimitedError) throw rateLimitedError(error.retryAfterSeconds);
     throw error;
   }
+}
+
+/** Spends the send quotas; throws the 429 if any is exhausted. */
+export function limitSend(limiter: SendLimiter, request: LimitedRequest): Promise<void> {
+  return spendOr429(() => limiter.beforeMagicLinkSend(request.headers ?? new Headers(), normalisedEmail(request.body)));
+}
+
+/** Spends the code-check quotas; the closed body (email-code-route.ts) has already guaranteed an email. */
+export function limitCodeCheck(limiter: SendLimiter, request: LimitedRequest): Promise<void> {
+  const email = normalisedEmail(request.body) ?? "";
+  return spendOr429(() => limiter.beforeCodeCheck(request.headers ?? new Headers(), email));
+}
+
+/** Spends the guest sign-up quotas; throws the 429 before any guest user exists. */
+export function limitGuestSignUp(limiter: SendLimiter, request: LimitedRequest): Promise<void> {
+  return spendOr429(() => limiter.beforeGuestSignUp(request.headers ?? new Headers()));
 }

@@ -13,17 +13,19 @@
  */
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { createAuthMiddleware } from "better-auth/api";
 import { anonymous } from "better-auth/plugins/anonymous";
 
+import { resolveLimits } from "../rate-limit/config.js";
 import { createSendLimiter } from "../rate-limit/limiter.js";
 import { account, session, user, verification } from "../schema/auth-tables.js";
 
-import { assertClosedCodeBody, closedCodePaths, sameCodeErrorStatus, unifyCodeErrors } from "./email-code-route.js";
+import { assertClosedCodeBody, sameCodeErrorStatus, unifyCodeErrors } from "./email-code-route.js";
 import { guardGuestLink, onLinkAccount } from "./guest-link.js";
 import { SESSION } from "./policies.js";
-import { AUTH_BASE_PATH, EMAIL_CODE_VERIFY_PATH, SEND_SIGN_IN_EMAIL_PATH } from "./routes.js";
-import { limitSend } from "./send-limit.js";
+import { exposedRoute, exposedRoutes, notFound } from "./route-allowlist.js";
+import { AUTH_BASE_PATH, EMAIL_CODE_VERIFY_PATH, GUEST_SIGN_UP_PATH, SEND_SIGN_IN_EMAIL_PATH } from "./routes.js";
+import { limitCodeCheck, limitGuestSignUp, limitSend } from "./send-limit.js";
 import { withoutClientData } from "./session-privacy.js";
 import { resolveSettings, type Env } from "./settings.js";
 import { signInEmailPlugins, type CreateSignInCode } from "./sign-in-email.js";
@@ -42,20 +44,21 @@ function emailPlugins<TDb extends AuthDatabase>(options: AuthKitOptions<TDb>, cr
   return signInEmailPlugins(options.mailer, options.email, createSignInCode);
 }
 
-function requestHooks<TDb extends AuthDatabase>(
-  options: AuthKitOptions<TDb>,
-  secret: string,
-  closedPaths: ReadonlySet<string>,
-) {
+function requestHooks<TDb extends AuthDatabase>(options: AuthKitOptions<TDb>, secret: string) {
   const log = options.log ?? ((line: string) => console.warn(line));
   const hops = trustedProxyHops(options.trustedProxyHops);
-  const limiter = createSendLimiter({ db: options.db, secret, trustedProxyHops: hops, log });
+  const limits = resolveLimits(options.limits);
+  const limiter = createSendLimiter({ db: options.db, secret, trustedProxyHops: hops, log, limits });
   const guard = options.guardGuestToAccount;
   return {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path === SEND_SIGN_IN_EMAIL_PATH) return limitSend(limiter, ctx);
-      if (ctx.request && closedPaths.has(ctx.path)) throw new APIError("NOT_FOUND");
-      if (ctx.path === EMAIL_CODE_VERIFY_PATH) assertClosedCodeBody(ctx);
+      // Every path that creates a guest goes through this endpoint, `signInAnonymously` included.
+      if (ctx.path === GUEST_SIGN_UP_PATH) return limitGuestSignUp(limiter, ctx);
+      if (ctx.path === EMAIL_CODE_VERIFY_PATH) {
+        assertClosedCodeBody(ctx);
+        await limitCodeCheck(limiter, ctx);
+      }
       if (guard) await guardGuestLink(ctx, guard);
     }),
     after: createAuthMiddleware((ctx) => {
@@ -70,7 +73,6 @@ function buildBetterAuth<TDb extends AuthDatabase>(options: AuthKitOptions<TDb>,
   // `sendMagicLink` needs the instance to create the code; it is plugged in as soon as the instance exists.
   let createSignInCode: CreateSignInCode = () => Promise.reject(new Error("better-auth is not mounted yet"));
   const plugins = emailPlugins(options, (email) => createSignInCode(email));
-  const closedPaths = closedCodePaths(plugins[0]?.endpoints ?? {});
   const auth = betterAuth({
     secret: options.secret,
     baseURL: options.baseURL,
@@ -91,7 +93,7 @@ function buildBetterAuth<TDb extends AuthDatabase>(options: AuthKitOptions<TDb>,
     telemetry: { enabled: false },
     // The code's row does not keep the email in clear; the magic link's keeps only the token's hash.
     verification: { storeIdentifier: { default: "plain", overrides: { "sign-in-otp-": "hashed" } } },
-    hooks: requestHooks(options, options.secret, closedPaths),
+    hooks: requestHooks(options, options.secret),
     plugins: [anonymous({ onLinkAccount: onLinkAccount(options.db, options.onGuestToAccount) }), ...plugins],
   });
   createSignInCode = (email) => auth.api.createVerificationOTP({ body: { email, type: "sign-in" } });
@@ -104,13 +106,16 @@ export type BetterAuthInstance = ReturnType<typeof buildBetterAuth>;
 export interface AuthKit {
   /** better-auth's server API, for what the package does not wrap. */
   readonly api: BetterAuthInstance["api"];
-  /** better-auth's fetch handler for the routes under `/api/auth`. */
+  /**
+   * The fetch handler for `/api/auth/*`: only the allowlisted routes reach better-auth (route-allowlist.ts), every other
+   * path answers 404, including routes a future better-auth adds.
+   */
   readonly handler: (request: Request) => Promise<Response>;
   /** The session's user from those headers, or null without a cookie, with an invalid one or after expiry. */
   currentUser(headers: Headers): Promise<SessionUser | null>;
   /**
-   * Creates a guest and its session; the cookie comes back in `headers` (`Set-Cookie`) for whoever answers. Put any
-   * sign-up limit in front of this call.
+   * Creates a guest and its session; the cookie comes back in `headers` (`Set-Cookie`) for whoever answers. The guest
+   * sign-up limit (GUEST_SIGN_UP_LIMITS) is spent first, on the IP in `headers`; exhausted, it throws the 429 APIError.
    */
   signInAnonymously(headers: Headers): Promise<{ user: SessionUser; headers: Headers }>;
 }
@@ -118,9 +123,13 @@ export interface AuthKit {
 /** Builds the auth instance; throws, without repeating any value, if an option or the environment is unsafe. */
 export function createAuth<TDb extends AuthDatabase>(options: AuthKitOptions<TDb>): AuthKit {
   const auth = buildBetterAuth(options, options.env ?? process.env);
+  const routes = exposedRoutes(options.mailer?.configured === true);
   return {
     api: auth.api,
-    handler: async (request) => sameCodeErrorStatus(request, await auth.handler(request)),
+    handler: async (request) => {
+      if (!exposedRoute(request, routes)) return notFound();
+      return sameCodeErrorStatus(request, await auth.handler(request));
+    },
     async currentUser(headers) {
       const result = await auth.api.getSession({ headers });
       if (!result) return null;

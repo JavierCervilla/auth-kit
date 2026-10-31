@@ -8,6 +8,7 @@ import { sql } from "drizzle-orm";
 import { rows, type TestDatabase } from "./harness.js";
 
 export const HOUR_WINDOW_SECONDS = 3600;
+export const DAY_WINDOW_SECONDS = 86_400;
 /** What a test is given to exhaust its quota inside one window. */
 export const WINDOW_MARGIN_SECONDS = 15;
 /** What is waited on top after the window changes, so as not to land right on the edge. */

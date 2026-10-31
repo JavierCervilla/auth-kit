@@ -3,7 +3,7 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { SEND_LIMITS } from "../../src/index.js";
+import { DEFAULT_LIMITS } from "../../src/index.js";
 import { createSendLimiter, rateLimitKey, RateLimitedError } from "../../src/rate-limit/limiter.js";
 
 import { authRequest, recordingMailer, testAuth } from "./fixtures.js";
@@ -46,20 +46,20 @@ describe("over HTTP", () => {
   it("the sixth send to the same email in the hour → 429 with Retry-After and no email, even from another IP", async () => {
     await untilWindowHasRoom(db, HOUR_WINDOW_SECONDS);
     const { mailer, send } = setup();
-    for (let i = 0; i < SEND_LIMITS.perEmail.hits; i++) {
+    for (let i = 0; i < DEFAULT_LIMITS.sendPerEmailPerHour; i++) {
       expect((await send("new@example.test", `198.51.100.${i + 1}`)).status).toBe(200);
     }
     const sixth = await send("New@Example.TEST", "198.51.100.99");
     expect(sixth.status).toBe(429);
     await limitedView(sixth);
-    expect(mailer.sent).toHaveLength(SEND_LIMITS.perEmail.hits);
+    expect(mailer.sent).toHaveLength(DEFAULT_LIMITS.sendPerEmailPerHour);
   }, WINDOW_TEST_TIMEOUT_MS);
 
   it("the 429 is the same for an email with an account and one without", async () => {
     await untilWindowHasRoom(db, HOUR_WINDOW_SECONDS);
     const { send } = setup();
     const exhaust = async (email: string, ip: string) => {
-      for (let i = 0; i < SEND_LIMITS.perEmail.hits; i++) await send(email, ip);
+      for (let i = 0; i < DEFAULT_LIMITS.sendPerEmailPerHour; i++) await send(email, ip);
       return send(email, ip);
     };
     const known = await limitedView(await exhaust("existing@example.test", "203.0.113.1"));
@@ -71,19 +71,19 @@ describe("over HTTP", () => {
   it("send 21 from the same IP in the hour → 429, with different emails; another IP still can", async () => {
     await untilWindowHasRoom(db, HOUR_WINDOW_SECONDS);
     const { mailer, send } = setup();
-    for (let i = 0; i < SEND_LIMITS.perIp.hits; i++) {
+    for (let i = 0; i < DEFAULT_LIMITS.sendPerIpPerHour; i++) {
       expect((await send(`person${i}@example.test`, "192.0.2.10")).status).toBe(200);
     }
     const blocked = await send("other@example.test", "192.0.2.10");
     expect(blocked.status).toBe(429);
     await limitedView(blocked);
     expect((await send("other@example.test", "192.0.2.11")).status).toBe(200);
-    expect(mailer.sent).toHaveLength(SEND_LIMITS.perIp.hits + 1);
+    expect(mailer.sent).toHaveLength(DEFAULT_LIMITS.sendPerIpPerHour + 1);
   }, WINDOW_TEST_TIMEOUT_MS);
 });
 
 describe("the counters", () => {
-  const limiter = () => createSendLimiter({ db, secret: SECRET, trustedProxyHops: 1, log: () => {} });
+  const limiter = () => createSendLimiter({ db, secret: SECRET, trustedProxyHops: 1, log: () => {}, limits: DEFAULT_LIMITS });
   const ip = (address: string) => new Headers({ "x-forwarded-for": address });
 
   it("one row per scope and subject, keyed by a 16-byte HMAC, with neither the email nor the IP in clear", async () => {
@@ -113,19 +113,20 @@ describe("the counters", () => {
 
   it("spends every quota before deciding: an exhausted email still counts the IP", async () => {
     await untilWindowHasRoom(db, HOUR_WINDOW_SECONDS);
-    for (let i = 0; i < SEND_LIMITS.perEmail.hits; i++) {
+    for (let i = 0; i < DEFAULT_LIMITS.sendPerEmailPerHour; i++) {
       await limiter().beforeMagicLinkSend(ip(`198.51.100.${i + 1}`), "full@example.test");
     }
     await expect(limiter().beforeMagicLinkSend(ip("198.51.100.200"), "full@example.test")).rejects.toBeInstanceOf(
       RateLimitedError,
     );
     const counted = await rows<{ n: number }>(db, sql`select count(*)::int as n from rate_limit_counter where scope = 'magic_link_ip'`);
-    expect(counted[0]?.n).toBe(SEND_LIMITS.perEmail.hits + 1);
+    expect(counted[0]?.n).toBe(DEFAULT_LIMITS.sendPerEmailPerHour + 1);
   }, WINDOW_TEST_TIMEOUT_MS);
 
   it("without a readable IP, every request shares one bucket and the log line carries no address", async () => {
     const lines: string[] = [];
-    const logged = createSendLimiter({ db, secret: SECRET, trustedProxyHops: 1, log: (line) => lines.push(line) });
+    const log = (line: string) => lines.push(line);
+    const logged = createSendLimiter({ db, secret: SECRET, trustedProxyHops: 1, log, limits: DEFAULT_LIMITS });
     await logged.beforeMagicLinkSend(new Headers({ "x-forwarded-for": "203.0.113.9, garbage" }), null);
     await logged.beforeMagicLinkSend(new Headers(), null);
     expect(await rows(db, sql`select hits from rate_limit_counter`)).toEqual([{ hits: 2 }]);

@@ -9,3 +9,6 @@ export const MAGIC_LINK_VERIFY_PATH = "/magic-link/verify";
 
 /** Check the code from the same email: the only `emailOTP` route that stays open. */
 export const EMAIL_CODE_VERIFY_PATH = "/sign-in/email-otp";
+
+/** Create a guest: closed over HTTP (route-allowlist.ts); `signInAnonymously` reaches it with its limit in front. */
+export const GUEST_SIGN_UP_PATH = "/sign-in/anonymous";
