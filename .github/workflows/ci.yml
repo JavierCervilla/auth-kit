@@ -1,0 +1,85 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Where to run (pool = the self-hosted fallback)
+        type: choice
+        options: [github, pool]
+        default: github
+permissions:
+  contents: read
+jobs:
+  check:
+    name: Typecheck, lint, unit tests, build
+    # GitHub-hosted by default: free for a public repository, and the account's Actions budget is 0. The self-hosted
+    # pool is the fallback, only by hand (workflow_dispatch with runner=pool, which needs write access), for when
+    # GitHub's runners fail.
+    runs-on: ${{ inputs.runner == 'pool' && vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: node .claude/skills/security-gate/scripts/check-unicode-safety.mjs
+      - run: node .claude/skills/security-gate/scripts/check-agent-config.mjs
+
+  security:
+    name: Guardián · security ladder (secrets + SAST + deps)
+    # GitHub-hosted by default: free for a public repository, and the account's Actions budget is 0. The self-hosted
+    # pool is the fallback, only by hand (workflow_dispatch with runner=pool, which needs write access), for when
+    # GitHub's runners fail.
+    runs-on: ${{ inputs.runner == 'pool' && vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+      - name: Install deps (for npm audit)
+        run: npm ci
+      # Pinned: a new semgrep release can add rules and turn a green PR red with no change of ours.
+      - name: Install semgrep
+        run: |
+          SEMGREP_VER="1.183.0"
+          pipx install "semgrep==${SEMGREP_VER}" || pip install --user "semgrep==${SEMGREP_VER}"
+          semgrep --version
+      - name: Install gitleaks
+        run: |
+          # The sha256 is the one in the release's gitleaks_8.21.2_checksums.txt: bump both together.
+          GL_VER="8.21.2"
+          GL_SHA256="5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VER}/gitleaks_${GL_VER}_linux_x64.tar.gz"
+          echo "${GL_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$HOME/.local/bin" gitleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gitleaks" version
+      - name: Install osv-scanner
+        run: |
+          # The sha256 is the one in the release's osv-scanner_SHA256SUMS: bump both together.
+          OSV_VER="1.9.2"
+          OSV_SHA256="d6af4b67fa5de658598bd2d445efb99e90d1734b3146962418719c4350ecb74b"
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_VER}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  $HOME/.local/bin/osv-scanner" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/osv-scanner"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/osv-scanner" --version
+      - name: Security ladder (hard gate)
+        run: bash .claude/skills/security-gate/scripts/security-gate.sh --strict .
