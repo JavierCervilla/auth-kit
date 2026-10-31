@@ -37,10 +37,26 @@ so no consumer weakens them by accident:
 - Session: 180 days from last use, renewed at most once a day; cookie `httpOnly`, `sameSite=lax`, `secure` outside
   local development.
 - No IP address or user agent is stored with a session; better-auth telemetry is off.
-- Send limits: 5 sends per hour per email and 20 per hour per IP, counted before better-auth runs, with the same 429
-  whether the email exists or not. Counters are fixed-window rows in Postgres keyed by an HMAC of the subject derived
-  from the auth secret.
+- Route allowlist: over HTTP only `GET /get-session` and, with mail on, asking for the sign-in email, opening the link
+  and checking the code reach better-auth. Every other path answers 404, including the guest sign-up route (guests are
+  created only on the server) and any route a future better-auth adds.
+- Usage limits are counted before better-auth runs, with the same 429 whether the email exists or not and whichever
+  quota ran out. Counters are fixed-window rows in Postgres keyed by an HMAC of the subject derived from the auth
+  secret, spent outside any transaction so a rollback never refunds an attempt.
 - A failed send answers the same 503 whether the email exists or not; no log line contains an email address.
+
+The amounts of the usage limits are the one thing a project may tune. Defaults are Tercer Tiempo's values, overridable
+with the `limits` option of `createAuth` or with `limitsFromEnv(env)`, which reads the same variables as Tercer Tiempo
+and refuses a blank, non-integer, zero or negative value at start-up, naming the variable:
+
+| Limit | Variable | Default |
+|---|---|---|
+| Sign-in emails per email per hour | `RATE_LIMIT_MAGIC_LINK_EMAIL_PER_HOUR` | 5 |
+| Sign-in emails per IP per hour | `RATE_LIMIT_MAGIC_LINK_IP_PER_HOUR` | 20 |
+| Code checks per email per day (spent right code or not) | `RATE_LIMIT_OTP_VERIFY_EMAIL_PER_DAY` | 10 |
+| Code checks per IP per hour | `RATE_LIMIT_OTP_VERIFY_IP_PER_HOUR` | 30 |
+| Guest sign-ups per IP per hour | `RATE_LIMIT_ANON_SIGNUP_PER_HOUR` | 30 |
+| Guest sign-ups per hour in total | `RATE_LIMIT_ANON_SIGNUP_GLOBAL_PER_HOUR` | 1000 |
 
 ## Public API (sketch)
 

@@ -26,9 +26,31 @@ These are fixed, not options:
 - A magic link works once and expires in 10 minutes; only its hash is stored.
 - The email code has 6 digits, the same expiry and 3 attempts.
 - A session lasts 180 days from its last use; no IP address or user agent is stored with it.
-- At most 5 sign-in emails per hour per address and 20 per hour per IP, with the same answer whether the address
-  exists or not.
+- Only better-auth routes the package uses are reachable over HTTP; every other path answers 404. Guests are created
+  only on the server, with `signInAnonymously`.
+- Every usage limit answers the same 429 whether the address exists or not, before better-auth runs.
 - No log line contains an email address.
+
+## Limits
+
+The usage limits are configurable. Pass `limits` to `createAuth` (merged over the defaults), or read them from the
+environment with `limitsFromEnv(process.env)`. An unset variable means the default; a blank, non-integer, zero or
+negative value stops the start with an error naming the variable.
+
+| Limit | Variable | Default |
+|---|---|---|
+| Sign-in emails per address per hour | `RATE_LIMIT_MAGIC_LINK_EMAIL_PER_HOUR` | 5 |
+| Sign-in emails per IP per hour | `RATE_LIMIT_MAGIC_LINK_IP_PER_HOUR` | 20 |
+| Email-code checks per address per day | `RATE_LIMIT_OTP_VERIFY_EMAIL_PER_DAY` | 10 |
+| Email-code checks per IP per hour | `RATE_LIMIT_OTP_VERIFY_IP_PER_HOUR` | 30 |
+| Guest sign-ups per IP per hour | `RATE_LIMIT_ANON_SIGNUP_PER_HOUR` | 30 |
+| Guest sign-ups per hour in total | `RATE_LIMIT_ANON_SIGNUP_GLOBAL_PER_HOUR` | 1000 |
+
+## Provenance
+
+Extracted from [JavierCervilla/tercer-tiempo@916d207](https://github.com/JavierCervilla/tercer-tiempo/tree/916d207)
+(`src/auth`, `src/mail`, `src/rate-limit`), same author. The comments were translated to English and the
+team-specific link logic was replaced by the generic guest-to-account hooks.
 
 ## Security
 
