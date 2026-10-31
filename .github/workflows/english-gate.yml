@@ -11,7 +11,9 @@ permissions:
   contents: read
 jobs:
   english:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Public repo: GitHub-hosted runners only, which are free for public repositories. Never the self-hosted pool: a
+    # fork's pull request runs the fork's own workflow file, so any guard written here could be edited away.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

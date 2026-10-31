@@ -86,8 +86,10 @@ tests/
 ## Quality gates
 
 - TypeScript strict, ESLint with the anti-slop preset, Vitest unit and integration tests.
-- CI on the runner pool (`vars.CI_RUNNER`). The pool has no Docker (a security decision), so the integration
-  tests cannot use a Postgres service container. They run against PGlite (Postgres compiled to WebAssembly, in
+- CI on GitHub-hosted runners, free for a public repository, and never on the self-hosted pool: a fork's pull
+  request runs the fork's own workflow file, so a public repo on the pool would run strangers' code on our machines.
+  The integration tests do not use a Postgres service container either, so the same suite runs in any consumer's CI
+  and on the Docker-less pool. They run against PGlite (Postgres compiled to WebAssembly, in
   process) through Drizzle's PGlite driver; whether better-auth's adapter and the send-limit SQL (`INSERT … ON
   CONFLICT … RETURNING`, `skip locked`) behave the same there is the first thing the extraction proves. If they do
   not, the fallback is a Postgres installed on the runner host.
