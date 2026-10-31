@@ -1,8 +1,17 @@
 {
   "exclude": [],
-  "interface": ["CHANGELOG.md", "ROADMAP.md"],
-  "vendored": [],
-  "properNouns": [],
+  "interface": [],
+  "vendored": [
+    ".claude/skills/security-gate/**",
+    ".claude/hooks/**",
+    "eslint.anti-slop.mjs",
+    ".security-gate-presets/**"
+  ],
+  "properNouns": [
+    "Guardián",
+    "Tercer Tiempo",
+    "Ventana Lunar"
+  ],
   "blockingSince": "2026-10-31T15:14:11Z",
   "local": "block"
 }

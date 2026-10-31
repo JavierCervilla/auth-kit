@@ -1,0 +1,251 @@
+# Ruleset SAST vendorizado y pinneado de la skill `security-gate` (T-061-B).
+#
+# Curado y pequeño: cubre el 80% del valor de seguridad sin tocar el registry de semgrep.
+# Se corre SIEMPRE con `--config <este-dir> --metrics=off` (NUNCA `--config p/...` ni `auto`,
+# que tiran del registry = red/cloud y rompen la reproducibilidad offline). Ver SKILL.md.
+#
+# Escape por línea: comentario `// nosemgrep: <id-de-regla>` (o `# nosemgrep`) en la línea
+# de la coincidencia exime ESA línea (lo soporta semgrep de serie). Úsalo trazado, con razón.
+#
+# Ejes: inyección de comandos, inyección SQL, XSS, path traversal, deserialización insegura,
+# crypto débil, uso de eval. Reglas genéricas + JS/TS + Python.
+rules:
+  # ----------------------------- eval / ejecución dinámica -----------------------------
+  - id: js-eval-call
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Uso de eval(): ejecución dinámica de código. Si la entrada es influenciable por el
+      usuario es RCE. Evita eval; usa JSON.parse o un dispatcher explícito.
+    metadata:
+      category: security
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern: eval(...)
+
+  - id: js-function-constructor
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      new Function(...) construye y ejecuta código a partir de strings: equivalente a eval().
+      Evítalo con datos influenciables por el usuario.
+    metadata:
+      category: security
+      cwe: "CWE-95"
+    patterns:
+      - pattern: new Function(...)
+
+  - id: py-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Uso de eval()/exec(): ejecución dinámica de código. Con entrada del usuario es RCE.
+      Usa ast.literal_eval o un dispatcher explícito.
+    metadata:
+      category: security
+      cwe: "CWE-95"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  # ----------------------------- inyección de comandos --------------------------------
+  - id: js-child-process-exec-concat
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      child_process.exec con string concatenada/interpolada: inyección de comandos del SO.
+      Usa execFile/spawn con un array de argumentos (sin shell), nunca concatenes input.
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: $CP.exec($X + $Y, ...)
+          - pattern: $CP.exec(`...${$Z}...`, ...)
+          - pattern: $CP.execSync($X + $Y, ...)
+          - pattern: $CP.execSync(`...${$Z}...`, ...)
+
+  - id: py-os-system-shell-injection
+    languages: [python]
+    severity: ERROR
+    message: >-
+      os.system / subprocess con shell=True y string dinámica: inyección de comandos del SO.
+      Usa subprocess.run([...]) con lista de argumentos y shell=False.
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: os.system($X + $Y)
+          - pattern: os.system(f"...{$Z}...")
+          - pattern: subprocess.$F(..., shell=True, ...)
+
+  # ----------------------------- inyección SQL ----------------------------------------
+  - id: js-sql-string-concat
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Query SQL construida por concatenación/interpolación de strings: inyección SQL.
+      Usa consultas parametrizadas / placeholders ($1, ?), nunca concatenes input.
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query("..." + $X, ...)
+          - pattern: $DB.query(`...${$Y}...`, ...)
+          - pattern: $DB.execute("..." + $X, ...)
+
+  - id: py-sql-string-format
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Query SQL con format/concatenación/f-string: inyección SQL. Usa parámetros
+      (cursor.execute(sql, params)), nunca interpoles input en el SQL.
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: $CUR.execute("..." % ...)
+          - pattern: $CUR.execute("..." + $X)
+          - pattern: $CUR.execute(f"...{$Y}...")
+
+  # ----------------------------- XSS --------------------------------------------------
+  - id: js-dangerously-set-inner-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      dangerouslySetInnerHTML inyecta HTML sin escapar: XSS si el contenido es influenciable
+      por el usuario. Sanitiza (p.ej. DOMPurify) o renderiza como texto.
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern: dangerouslySetInnerHTML={...}
+
+  - id: js-document-write
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      document.write / element.innerHTML con datos dinámicos: vector de XSS basado en DOM.
+      Usa textContent o un framework que escape por defecto.
+    metadata:
+      category: security
+      cwe: "CWE-79"
+    patterns:
+      - pattern-either:
+          - pattern: document.write(...)
+          - pattern: $EL.innerHTML = $X + $Y
+          - pattern: $EL.innerHTML = `...${$Z}...`
+
+  # ----------------------------- path traversal ---------------------------------------
+  - id: js-fs-path-traversal
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Lectura/escritura de fichero con ruta concatenada/interpolada desde input: path
+      traversal (../). Normaliza y valida que la ruta resuelta quede dentro de un base dir.
+    metadata:
+      category: security
+      cwe: "CWE-22: Path Traversal"
+      owasp: "A01:2021 - Broken Access Control"
+    patterns:
+      - pattern-either:
+          - pattern: $FS.readFile($REQ + $X, ...)
+          - pattern: $FS.readFileSync($REQ + $X, ...)
+          - pattern: $FS.writeFile($REQ + $X, ...)
+          - pattern: $FS.writeFileSync($REQ + $X, ...)
+
+  - id: py-open-path-traversal
+    languages: [python]
+    severity: WARNING
+    message: >-
+      open() con ruta construida por concatenación/f-string: posible path traversal.
+      Normaliza con os.path.realpath y valida que quede dentro del directorio base.
+    metadata:
+      category: security
+      cwe: "CWE-22"
+    patterns:
+      - pattern-either:
+          - pattern: open($X + $Y, ...)
+          - pattern: open(f"...{$Z}...", ...)
+
+  # ----------------------------- deserialización insegura -----------------------------
+  - id: py-pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: >-
+      pickle.load/loads sobre datos no confiables: ejecución de código arbitrario en la
+      deserialización. Usa JSON u otro formato sin code-exec para datos externos.
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load(...)
+          - pattern: pickle.loads(...)
+
+  - id: py-yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: >-
+      yaml.load sin SafeLoader puede instanciar objetos arbitrarios (RCE). Usa
+      yaml.safe_load() o Loader=yaml.SafeLoader.
+    metadata:
+      category: security
+      cwe: "CWE-502"
+    patterns:
+      - pattern: yaml.load($X)
+
+  # ----------------------------- crypto débil -----------------------------------------
+  - id: js-weak-hash
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      Hash criptográfico débil (md5/sha1) vía crypto.createHash: roto frente a colisiones.
+      Para integridad/firmas usa sha256+; para contraseñas usa bcrypt/argon2/scrypt.
+    metadata:
+      category: security
+      cwe: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp: "A02:2021 - Cryptographic Failures"
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash("md5")
+          - pattern: crypto.createHash("sha1")
+
+  - id: js-math-random-token
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      Math.random() no es criptográficamente seguro: no lo uses para tokens/IDs/secretos.
+      Usa crypto.randomBytes / crypto.randomUUID.
+    metadata:
+      category: security
+      cwe: "CWE-338: Use of Cryptographically Weak PRNG"
+    patterns:
+      - pattern: Math.random()
+
+  - id: py-weak-hash
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Hash criptográfico débil (md5/sha1) vía hashlib: roto frente a colisiones. Usa
+      sha256+ para integridad; bcrypt/argon2/scrypt para contraseñas.
+    metadata:
+      category: security
+      cwe: "CWE-327"
+      owasp: "A02:2021 - Cryptographic Failures"
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)

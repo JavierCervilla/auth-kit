@@ -1,0 +1,42 @@
+# Config base de gitleaks para la skill `security-gate` (T-061-B).
+#
+# Extiende el ruleset POR DEFECTO de gitleaks (cientos de detectores de credenciales: AWS, GCP,
+# GitHub/GitLab tokens, claves privadas, etc.) y añade allowlist de rutas que NO deben escanearse
+# (no son secretos reales). El veredicto es el mismo offline: gitleaks no consulta red.
+#
+# Escape por línea de código fuente: comentario `gitleaks:allow` en la línea del hallazgo
+# (lo soporta gitleaks de serie). Úsalo trazado y con razón. Para rutas, amplía [allowlist].
+#
+# Se invoca con `gitleaks dir <path> -c <este-fichero> --no-banner --redact`.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Rutas y patrones que no contienen secretos reales (reduce falsos positivos)."
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.git/''',
+  '''(^|/)\.next/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)coverage/''',
+  '''(^|/).*\.lock$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/).*\.env\.example$''',
+  '''(^|/).*\.test\.(js|ts|tsx|py)$''',
+  # T-160: artefactos de compilación de Python. El bytecode incrusta las cadenas literales de los
+  # tests, así que un fixture sintético reaparece aquí — y en un binario el escape `gitleaks:allow`
+  # por línea es imposible por definición. Mismo criterio que node_modules/.next/dist: generado, no fuente.
+  '''(^|/)__pycache__/''',
+  '''(^|/).*\.pyc$''',
+]
+# NOTA (T-160): el patrón `.test.py` de arriba cubre la convención JS (`foo.test.py`) pero NO la de
+# pytest (`test_foo.py`), que es la que usa `guardrails/tests/`. No se amplía a propósito: esos cuatro
+# fixtures llevan `gitleaks:allow` por LÍNEA, que es más estricto —excluir el fichero entero apagaría
+# la detección de un secreto real dentro de un test—. Queda dicho para que nadie lo lea como olvido.
+# Marcadores explícitos de ejemplo/placeholder en docs y .env.example.
+regexes = [
+  '''EXAMPLE''',
+  '''(?i)your[-_]?(api[-_]?)?(key|token|secret)[-_]?here''',
+  '''(?i)placeholder''',
+]

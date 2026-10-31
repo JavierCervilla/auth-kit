@@ -1,0 +1,40 @@
+{
+  "name": "@universelle/auth-kit",
+  "version": "0.0.0",
+  "description": "Optional sign-in for web games and apps: guest play, magic link and email code, on better-auth with Postgres.",
+  "license": "MIT",
+  "author": "Universelle",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JavierCervilla/auth-kit.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "eslint": "9.39.5",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-plugin-sonarjs": "4.2.2",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  }
+}

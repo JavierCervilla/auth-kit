@@ -80,13 +80,17 @@ src/
   adapters/    hono.ts, next.ts
 tests/
   unit/        no database, no network
-  integration/ against a real Postgres (service container in CI)
+  integration/ against a real Postgres engine (see Quality gates)
 ```
 
 ## Quality gates
 
 - TypeScript strict, ESLint with the anti-slop preset, Vitest unit and integration tests.
-- CI on the runner pool (`vars.CI_RUNNER`), with a Postgres service for the integration tests.
+- CI on the runner pool (`vars.CI_RUNNER`). The pool has no Docker (a security decision), so the integration
+  tests cannot use a Postgres service container. They run against PGlite (Postgres compiled to WebAssembly, in
+  process) through Drizzle's PGlite driver; whether better-auth's adapter and the send-limit SQL (`INSERT … ON
+  CONFLICT … RETURNING`, `skip locked`) behave the same there is the first thing the extraction proves. If they do
+  not, the fallback is a Postgres installed on the runner host.
 - Security ladder (gitleaks, semgrep, osv-scanner, npm audit), English gate.
 - Public repo hygiene: `LICENSE`, `README.md` with install and usage, `SECURITY.md` with how to report a vulnerability
   privately, no real keys in tests or examples.
@@ -104,7 +108,8 @@ A change to a fixed policy or to the tables is a breaking change and comes with 
 4. Hono adapter and a first integration in Mooner; tag `v0.1.0`.
 5. Next adapter, for Tercer Tiempo's migration.
 
-## Open
+## Settled after review
 
-- Licence (Tercer Tiempo has none; its author decides).
-- Language of `CHANGELOG.md` for a public package (the framework's default is Spanish).
+- Licence: MIT, © 2026 Universelle (Tercer Tiempo had none; its author chose).
+- `CHANGELOG.md` and `ROADMAP.md` are in English: the package is public and its readers are global. This is a
+  deliberate exception to the framework's Spanish default.
