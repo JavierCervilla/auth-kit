@@ -14,7 +14,7 @@ permissions:
   contents: read
 jobs:
   check:
-    name: Typecheck, lint, unit tests, build
+    name: Typecheck, lint, unit and integration tests, build
     # GitHub-hosted by default: free for a public repository, and the account's Actions budget is 0. The self-hosted
     # pool is the fallback, only by hand (workflow_dispatch with runner=pool, which needs write access), for when
     # GitHub's runners fail.
@@ -31,6 +31,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      # Integration tests against PGlite (Postgres in WebAssembly, in process): no Docker, no database service.
+      - run: npm run test:int
       - run: npm run build
       - run: node .claude/skills/security-gate/scripts/check-unicode-safety.mjs
       - run: node .claude/skills/security-gate/scripts/check-agent-config.mjs

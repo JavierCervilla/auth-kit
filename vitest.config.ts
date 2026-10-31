@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-// Unit tests only; the integration tests against Postgres get their own config when the extracted code lands.
+// Unit tests only; the integration tests against PGlite run with vitest.int.config.ts (`npm run test:int`).
 export default defineConfig({
   test: {
     environment: "node",

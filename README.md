@@ -30,6 +30,12 @@ These are fixed, not options:
   exists or not.
 - No log line contains an email address.
 
+## Provenance
+
+Extracted from [JavierCervilla/tercer-tiempo@916d207](https://github.com/JavierCervilla/tercer-tiempo/tree/916d207)
+(`src/auth`, `src/mail`, `src/rate-limit`), same author. The comments were translated to English and the
+team-specific link logic was replaced by the generic guest-to-account hooks.
+
 ## Security
 
 See [`SECURITY.md`](SECURITY.md) to report a vulnerability.
