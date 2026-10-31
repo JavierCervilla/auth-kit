@@ -98,6 +98,34 @@ describe("asking for the link", () => {
     expect(await unknown.json()).toEqual(body);
   });
 
+  it("refuses a body with anything beyond the email and the callback URLs: 400, no email, no quota spent", async () => {
+    // A third party must not choose the name (or metadata) of the user created when the victim opens the link.
+    const mailer = recordingMailer();
+    const { auth } = setup(mailer);
+    const extras = [{ name: "Call +1-555 support" }, { metadata: { role: "admin" } }, { image: "https://x.test/a.png" }];
+    for (const extra of extras) {
+      const res = await auth.handler(
+        authRequest("/sign-in/magic-link", { body: { email: "victim@example.test", callbackURL: "/", ...extra } }),
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(mailer.sent).toHaveLength(0);
+    expect(await rows(db, sql`select 1 from verification`)).toHaveLength(0);
+    expect(await rows(db, sql`select 1 from rate_limit_counter`)).toHaveLength(0);
+  });
+
+  it("accepts the callback URLs better-auth knows", async () => {
+    const mailer = recordingMailer();
+    const { auth } = setup(mailer);
+    const res = await auth.handler(
+      authRequest("/sign-in/magic-link", {
+        body: { email: "new@example.test", callbackURL: "/", errorCallbackURL: "/", newUserCallbackURL: "/" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(mailer.sent).toHaveLength(1);
+  });
+
   it("without a mailer, or with one that is off: 404 and nothing in the database", async () => {
     const off: Mailer = { configured: false, send: () => Promise.resolve({ ok: false, reason: "not_configured" }) };
     for (const mailer of [undefined, off]) {

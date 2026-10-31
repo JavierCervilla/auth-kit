@@ -20,7 +20,8 @@ import { resolveLimits } from "../rate-limit/config.js";
 import { createSendLimiter } from "../rate-limit/limiter.js";
 import { account, session, user, verification } from "../schema/auth-tables.js";
 
-import { assertClosedCodeBody, sameCodeErrorStatus, unifyCodeErrors } from "./email-code-route.js";
+import { assertClosedCodeBody, assertClosedSendBody } from "./closed-body.js";
+import { sameCodeErrorStatus, unifyCodeErrors } from "./email-code-route.js";
 import { guardGuestLink, onLinkAccount } from "./guest-link.js";
 import { SESSION } from "./policies.js";
 import { exposedRoute, exposedRoutes, notFound } from "./route-allowlist.js";
@@ -52,7 +53,10 @@ function requestHooks<TDb extends AuthDatabase>(options: AuthKitOptions<TDb>, se
   const guard = options.guardGuestToAccount;
   return {
     before: createAuthMiddleware(async (ctx) => {
-      if (ctx.path === SEND_SIGN_IN_EMAIL_PATH) return limitSend(limiter, ctx);
+      if (ctx.path === SEND_SIGN_IN_EMAIL_PATH) {
+        assertClosedSendBody(ctx);
+        return limitSend(limiter, ctx);
+      }
       // Every path that creates a guest goes through this endpoint, `signInAnonymously` included.
       if (ctx.path === GUEST_SIGN_UP_PATH) return limitGuestSignUp(limiter, ctx);
       if (ctx.path === EMAIL_CODE_VERIFY_PATH) {

@@ -46,6 +46,16 @@ negative value stops the start with an error naming the variable.
 | Guest sign-ups per IP per hour | `RATE_LIMIT_ANON_SIGNUP_PER_HOUR` | 30 |
 | Guest sign-ups per hour in total | `RATE_LIMIT_ANON_SIGNUP_GLOBAL_PER_HOUR` | 1000 |
 
+## Deploying it safely
+
+- **Proxy in front.** `trustedProxyHops` (default 1) says how many proxies in front of the app append the client's
+  address to `X-Forwarded-For`; the limiter takes the address that many hops from the right. With no proxy, set it to
+  0, or a client can write that header and dodge the per-IP limits (the per-email and global limits still hold).
+- **No permissive CORS with credentials.** The sign-in routes rely on browsers refusing cross-site JSON without a
+  CORS preflight. Do not answer that preflight for other sites with `Access-Control-Allow-Credentials: true` on the
+  auth routes.
+- **Sign-out** is not exposed over HTTP; call `auth.api.signOut` from your own route if the app offers it.
+
 ## Provenance
 
 Extracted from [JavierCervilla/tercer-tiempo@916d207](https://github.com/JavierCervilla/tercer-tiempo/tree/916d207)

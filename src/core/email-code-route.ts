@@ -1,7 +1,6 @@
 /**
  * Around `POST /sign-in/email-otp`, the only `emailOTP` route left open:
- * - in front, a closed body: a JSON object with exactly `email` and `otp`, both strings. Anything else is a 400 before
- *   better-auth sees it (no `name`, `image` or extra fields can reach a new `user`);
+ * - in front, a closed body (closed-body.ts): exactly `email` and `otp`, both strings;
  * - behind, one error: wrong (`INVALID_OTP`), expired (`OTP_EXPIRED`) or exhausted (`TOO_MANY_ATTEMPTS`) all answer
  *   the same 400 with the same body, so the answer does not say whether a code was requested, expired or ran out.
  * Every other `emailOTP` route answers 404 over HTTP (route-allowlist.ts): the code is only sent with the magic link.
@@ -16,21 +15,6 @@ export const CODE_NOT_VALID = "OTP_NOT_VALID";
 
 const UNIFIED = new Set(["INVALID_OTP", "OTP_EXPIRED", "TOO_MANY_ATTEMPTS"]);
 const NO_STORE = { "Cache-Control": "no-store" };
-
-function isClosedBody(body: unknown): boolean {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) return false;
-  const keys = Object.keys(body).sort((a, b) => a.localeCompare(b));
-  if (keys.length !== 2 || keys[0] !== "email" || keys[1] !== "otp") return false;
-  const { email, otp } = body as { email: unknown; otp: unknown };
-  return typeof email === "string" && typeof otp === "string";
-}
-
-/** Throws the 400 unless the request is JSON with exactly `{ email: string, otp: string }`. */
-export function assertClosedCodeBody(request: { request?: Request | undefined; body?: unknown }): void {
-  const type = request.request?.headers.get("content-type") ?? "application/json";
-  if (type.includes("application/json") && isClosedBody(request.body)) return;
-  throw new APIError("BAD_REQUEST", { code: "BAD_REQUEST", message: "Invalid body." }, NO_STORE);
-}
 
 function errorCode(returned: unknown): string | undefined {
   if (!(returned instanceof APIError)) return undefined;
