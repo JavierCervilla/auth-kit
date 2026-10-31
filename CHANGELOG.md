@@ -26,3 +26,11 @@ project uses [semantic versioning](https://semver.org/).
 - `@universelle/auth-kit/schema` (`authTables`: user, session, account, verification, rate_limit_counter) and
   `@universelle/auth-kit/mail` (`Mailer` and `resendSmtpMailer` over port 587 with STARTTLS).
 - Unit tests and integration tests against PGlite (`npm run test:int`), also in CI.
+
+### Security
+
+- `POST /sign-in/magic-link` takes a closed body: `email` and the three callback URLs, all strings. A third party can
+  no longer set the `name`, `image` or `metadata` written on the user created when the email's owner opens the link.
+  A refused body is a 400 that spends no quota.
+- Both sign-in routes accept only `application/json` as the media type, not any type that mentions it.
+- README: deploying behind a proxy (`trustedProxyHops`) and never with permissive CORS on the auth routes.

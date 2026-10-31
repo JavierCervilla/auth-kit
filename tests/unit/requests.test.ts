@@ -1,8 +1,9 @@
 // The pure pieces around better-auth's routes: where a refusal sends the page back, the closed body of the code route,
-// the single code error over HTTP, the email's locale and the send-limit 429.
+// the closed body of the send route, the single code error over HTTP, the email's locale and the send-limit 429.
 import { describe, expect, it } from "vitest";
 
-import { assertClosedCodeBody, sameCodeErrorStatus } from "../../src/core/email-code-route.js";
+import { assertClosedCodeBody, assertClosedSendBody } from "../../src/core/closed-body.js";
+import { sameCodeErrorStatus } from "../../src/core/email-code-route.js";
 import { refusalError, refusalURL } from "../../src/core/refusal.js";
 import { rateLimitedError } from "../../src/core/send-limit.js";
 import { localeOf } from "../../src/core/sign-in-email.js";
@@ -58,6 +59,37 @@ describe("assertClosedCodeBody", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
     });
     expect(() => assertClosedCodeBody({ request: form, body: { email: "a", otp: "1" } })).toThrow();
+  });
+
+  it("refuses a content type that only mentions JSON in a parameter", () => {
+    const sneaky = new Request(`${BASE}/sign-in/email-otp`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded; x=application/json" },
+    });
+    expect(() => assertClosedCodeBody({ request: sneaky, body: { email: "a", otp: "1" } })).toThrow();
+  });
+});
+
+describe("assertClosedSendBody", () => {
+  const json = new Request(`${BASE}/sign-in/magic-link`, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+
+  it.each([
+    ["only the email", { email: "a@example.test" }],
+    ["the email and every callback URL", { email: "a@example.test", callbackURL: "/", errorCallbackURL: "/e", newUserCallbackURL: "/n" }],
+  ])("accepts %s", (_case, body) => {
+    expect(() => assertClosedSendBody({ request: json, body })).not.toThrow();
+  });
+
+  it.each([
+    ["a name", { email: "a@example.test", name: "Call support" }],
+    ["metadata", { email: "a@example.test", metadata: { role: "admin" } }],
+    ["no email", { callbackURL: "/" }],
+    ["a callback that is not a string", { email: "a@example.test", callbackURL: 1 }],
+  ])("refuses %s with a 400", (_case, body) => {
+    expect(() => assertClosedSendBody({ request: json, body })).toThrow(expect.objectContaining({ statusCode: 400 }));
   });
 });
 
