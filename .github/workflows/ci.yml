@@ -3,16 +3,22 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Where to run (pool = the self-hosted fallback)
+        type: choice
+        options: [github, pool]
+        default: github
 permissions:
   contents: read
 jobs:
   check:
     name: Typecheck, lint, unit tests, build
-    # Self-hosted pool only, never GitHub-hosted runners (no Actions billing). The repo is public, so a fork's pull
-    # request never runs here: this condition skips it, and since a fork can edit its own copy of this file, the real
-    # barrier is the repo setting that requires approval for every external contributor's workflow run.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ vars.CI_RUNNER }}
+    # GitHub-hosted by default: free for a public repository, and the account's Actions budget is 0. The self-hosted
+    # pool is the fallback, only by hand (workflow_dispatch with runner=pool, which needs write access), for when
+    # GitHub's runners fail.
+    runs-on: ${{ inputs.runner == 'pool' && vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -31,11 +37,10 @@ jobs:
 
   security:
     name: Guardián · security ladder (secrets + SAST + deps)
-    # Self-hosted pool only, never GitHub-hosted runners (no Actions billing). The repo is public, so a fork's pull
-    # request never runs here: this condition skips it, and since a fork can edit its own copy of this file, the real
-    # barrier is the repo setting that requires approval for every external contributor's workflow run.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ vars.CI_RUNNER }}
+    # GitHub-hosted by default: free for a public repository, and the account's Actions budget is 0. The self-hosted
+    # pool is the fallback, only by hand (workflow_dispatch with runner=pool, which needs write access), for when
+    # GitHub's runners fail.
+    runs-on: ${{ inputs.runner == 'pool' && vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

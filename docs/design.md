@@ -86,10 +86,11 @@ tests/
 ## Quality gates
 
 - TypeScript strict, ESLint with the anti-slop preset, Vitest unit and integration tests.
-- CI only on the self-hosted runner pool (`vars.CI_RUNNER`), never on GitHub-hosted runners, so Actions never
-  bills. Because the repo is public, a fork's pull request must never run there: the jobs skip it, and the repo
-  requires approval for every external contributor's workflow run, because a fork can edit its own workflow file.
-  Before approving one, check that its diff does not touch `.github/`.
+- CI on GitHub-hosted runners, free for a public repository, with the account's Actions budget at 0 so nothing can
+  bill. The self-hosted pool (`vars.CI_RUNNER`) is a manual fallback when GitHub's runners fail: run the CI workflow
+  by hand with `runner: pool`, which needs write access. The repo requires approval for every external
+  contributor's workflow run, because a fork can edit its own workflow file and name the pool's label; before
+  approving one, check that its diff does not touch `.github/`.
   The integration tests do not use a Postgres service container either, so the same suite runs in any consumer's CI
   and on the Docker-less pool. They run against PGlite (Postgres compiled to WebAssembly, in
   process) through Drizzle's PGlite driver; whether better-auth's adapter and the send-limit SQL (`INSERT … ON
