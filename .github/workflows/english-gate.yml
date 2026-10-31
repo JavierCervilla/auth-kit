@@ -1,0 +1,42 @@
+# English gate, installed by AgenticFramework's english-gate skill (T-359). Technical text in English, only what a
+# person reads in Spanish. It blocks the lines a PR adds, its commit messages, and its title and body, for PRs opened
+# at or after `blockingSince` in .english-gate/config.json (always, when that key is absent). Plain Node, no
+# dependencies, no network. To cite Spanish UI text in English, put it between «».
+name: English gate
+on:
+  pull_request:
+    # `edited`: a title or a body changed after the last push is checked too.
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  english:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The gate diffs against the PR base and reads the PR's commits: it needs the history.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          check-latest: true
+          # The gate needs no dependencies: without this, setup-node caches the package manager named in package.json
+          # and fails when that manager isn't installed.
+          package-manager-cache: false
+      - name: Self-test
+        run: node .english-gate/check-english.mjs --self-test
+      - name: Added lines, commits, title and body of this PR
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_CREATED: ${{ github.event.pull_request.created_at }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          node .english-gate/check-english.mjs \
+            --added "origin/$BASE_REF" --commits "origin/$BASE_REF" \
+            --text "$RUNNER_TEMP/pr-title.txt" --text "$RUNNER_TEMP/pr-body.md" \
+            --identifiers --literals --pr-created "$PR_CREATED"

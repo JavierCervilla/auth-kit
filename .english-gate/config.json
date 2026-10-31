@@ -1,0 +1,8 @@
+{
+  "exclude": [],
+  "interface": ["CHANGELOG.md", "ROADMAP.md"],
+  "vendored": [],
+  "properNouns": [],
+  "blockingSince": "2026-10-31T15:14:11Z",
+  "local": "block"
+}
